@@ -13,11 +13,12 @@ import (
 
 var jwtKey = []byte("superSecretKey")
 
-func GenerateAccessToken(username string) (string, error) {
+func GenerateAccessToken(username *string, id *uint) (string, error) {
 	token := jwt.New(jwt.SigningMethodHS256)
 
 	claims := token.Claims.(jwt.MapClaims)
 	claims["iss"] = &username
+	claims["id"] = &id
 	claims["exp"] = time.Now().Add(time.Hour * 24).Unix()
 	claims["iat"] = time.Now().Unix()
 	claims["sub"] = "API Go"
@@ -30,7 +31,7 @@ func GenerateAccessToken(username string) (string, error) {
 	return tokenString, nil
 }
 
-func GenerateRefreshToken(email string) (string, error) {
+func GenerateRefreshToken(email *string) (string, error) {
 	token := jwt.New(jwt.SigningMethodHS256)
 
 	claims := token.Claims.(jwt.MapClaims)
@@ -44,7 +45,7 @@ func GenerateRefreshToken(email string) (string, error) {
 		return "", err
 	}
 
-	erro := UpdateRefreshToken(email, tokenString)
+	erro := UpdateRefreshToken(email, &tokenString)
 	if erro != nil {
 		return "", erro
 	}
@@ -52,7 +53,7 @@ func GenerateRefreshToken(email string) (string, error) {
 	return tokenString, nil
 }
 
-func UpdateRefreshToken(email, refreshToken string) error {
+func UpdateRefreshToken(email, refreshToken *string) error {
 	result := infra.DB.Model(&models.User{}).Where("email = ?", email).Update("refresh_token", refreshToken)
 	if result.Error != nil {
 		return fmt.Errorf("error to update the column refresh token: %v", result.Error)
@@ -76,7 +77,6 @@ func SignUp(c *gin.Context) {
 	layout := "02/01/2006"
 	birthday, _ := time.Parse(layout, dto.Birthday)
 	user := models.User{
-		ID:        0,
 		Name:      dto.Name,
 		Surname:   dto.Surname,
 		Email:     dto.Email,
@@ -86,7 +86,7 @@ func SignUp(c *gin.Context) {
 		Company:   dto.Company,
 	}
 
-	if err := infra.DB.Create(&user).Error; err != nil {
+	if err := infra.DB.Model(&models.User{}).Create(&user).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create user"})
 		return
 	}
@@ -102,7 +102,7 @@ func Login(c *gin.Context) {
 	}
 
 	var user models.User
-	if err := infra.DB.Where("email = ?", login.Email).First(&user).Error; err != nil {
+	if err := infra.DB.Model(&models.User{}).Where("email = ?", login.Email).First(&user).Error; err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not found"})
 		return
 	}
@@ -112,13 +112,13 @@ func Login(c *gin.Context) {
 		return
 	}
 
-	refreshToken, err := GenerateRefreshToken(login.Email)
+	refreshToken, err := GenerateRefreshToken(&login.Email)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate refresh token"})
 		return
 	}
 
-	accessToken, err := GenerateAccessToken(login.Email)
+	accessToken, err := GenerateAccessToken(&login.Email, &user.ID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate access token"})
 		return
